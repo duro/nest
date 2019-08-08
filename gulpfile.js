@@ -5,6 +5,16 @@ const ts = require('gulp-typescript');
 const sourcemaps = require('gulp-sourcemaps');
 const clean = require('gulp-clean');
 const deleteEmpty = require('delete-empty');
+const childProcess = require('child_process');
+const log = require('fancy-log');
+const clc = require('cli-color');
+const promiseSeries = require('promise.series');
+
+const { promisify } = require('util');
+
+const exec = promisify(childProcess.exec);
+
+const SAMPLE = path.join(__dirname, 'sample');
 
 const packages = {
   common: ts.createProject('packages/common/tsconfig.json'),
@@ -101,9 +111,49 @@ function getFolders(dir) {
     return fs.statSync(path.join(dir, file)).isDirectory();
   });
 }
-gulp.task('move', function() {
-  const getDirs = base => getFolders(base).map(path => `${base}/${path}`);
 
+const getDirs = base => getFolders(base).map(path => `${base}/${path}`);
+
+gulp.task('install:samples', async () => {
+  const directories = getDirs(SAMPLE);
+
+  const promises = directories.map(async dir => {
+    const dirName = dir.replace(__dirname, '');
+    log.info(`Installing dependencies of ${clc.magenta(dirName)}`);
+    try {
+      await exec(`npm install --no-shrinkwrap --prefix ${dir}`);
+      log.info(`Finished installing ${clc.magenta(dirName)}`);
+    } catch (err) {
+      log.error(`Failed installing dependencies of ${dirName}`);
+      throw err;
+    }
+  });
+
+  return await promiseSeries(promises);
+});
+
+gulp.task('build:samples', async () => {
+  const directories = getDirs(SAMPLE);
+
+  const promises = directories.map(async dir => {
+    const dirName = dir.replace(__dirname, '');
+    log.info(`Building ${clc.magenta(dirName)}`);
+    try {
+      await exec(`npm run build --prefix ${dir}`);
+      log.info(`Finished building ${clc.magenta(dirName)}`);
+    } catch (err) {
+      log.error(`Failed building ${clc.magenta(dirName)}:`);
+      if (err.stdout) {
+        log.error(err.stdout);
+      }
+      throw err;
+    }
+  });
+
+  return await promiseSeries(promises);
+});
+
+gulp.task('move', function() {
   const examplesDirs = getDirs('sample');
   const integrationDirs = getDirs('integration');
   const directories = examplesDirs.concat(integrationDirs);
